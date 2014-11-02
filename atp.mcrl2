@@ -1,0 +1,216 @@
+%--------------------------------------------------------------------------------------------------------------------------------------------------------------- 
+sort
+%------------------------------------------------------------------- D A T A   T Y P E S -----------------------------------------------------------------------
+	
+	currentSpeed 	= struct s_0 | s_1to40 | s_41to50 | s_51to60 | s_61to70 | s_71to80 | s_81to90 | s_91to130 | s_131to140 | s_141toTopSpeed;
+	speedLimit 		= struct sL_40| sL_60| sL_80 | sL_130;
+	brakeStatus 	= struct nonBraking | normalBraking | emergencyBraking;
+
+%--------------------------------------------------------------------------------------------------------------------------------------------------------------- 
+act 
+%------------------------------------------------------------- E X T E R N A L   A C T I O N S -----------------------------------------------------------------
+	
+	ringBell;
+	ring3Bell;
+
+	timeOut;
+
+	emergencyBrakes;
+	releaseEmergencyBrakes;
+
+	beaconStop;
+
+	speedLimit: speedLimit; 
+	reportSpeed: currentSpeed;
+	reportBrakeStatus: brakeStatus;
+	reportAcceleration: Bool;
+
+	logAction;
+	overSpeeding;
+	enablingATPplusplus;
+	disablingATPplusplus;
+	enablingATPvv;
+	disablingATPvv;
+	emergencyBraking;
+
+	enable;
+	disable;
+
+%--------------------------------------------------------------------------------------------------------------------------------------------------------------- 
+
+%------------------------------------------------------------- I N T E R N A L   A C T I O N S -----------------------------------------------------------------
+
+	send_enableATPplusplus; rcv_enableATPplusplus; msg_enableATPplusplus;
+	send_enableATPvv; rcv_enableATPvv; msg_enableATPvv;
+
+	send_disableATPplusplus; rcv_disableATPplusplus; msg_disableATPplusplus;
+	send_disableATPvv; rcv_disableATPvv; msg_disableATPvv;
+
+	send_beaconStop; rcv_beaconStop; msg_beaconStop;
+
+	send_speedLimit: speedLimit; rcv_speedLimit: speedLimit; msg_speedLimit: speedLimit;
+	send_reportSpeed: currentSpeed; rcv_reportSpeed: currentSpeed; msg_reportSpeed: currentSpeed;
+	send_reportBrakeStatus: brakeStatus; rcv_reportBrakeStatus: brakeStatus; msg_reportBrakeStatus: brakeStatus;
+	send_reportAcceleration: Bool; rcv_reportAcceleration: Bool; msg_reportAcceleration: Bool;
+
+%---------------------------------------------------------------------------------------------------------------------------------------------------------------
+proc
+%---------------------------------------------------------------- A T P   M O D U L E S ------------------------------------------------------------------------
+
+%---------------------------------------------------------------------------------------------------------------------------------------------------------------
+%Beginning of 	G E N E R I C   A T P 
+%---------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+	genericATP(enabled:Bool)
+	= 
+		%-- REQUIREMENT 1 --%
+		(enable.send_enableATPplusplus.send_enableATPvv.genericATP(true))+
+		(disable.(enabled==true)-> send_disableATPplusplus.send_disableATPvv.genericATP(false) 					<> logAction.genericATP(enabled))+
+
+		%-- REQUIREMENT 5 --%
+		(sum newLimit:speedLimit.speedLimit(newLimit).(enabled==true)-> send_speedLimit(newLimit).genericATP(enabled) 			<> logAction.genericATP(enabled))+
+		(sum newStatus:brakeStatus.reportBrakeStatus(newStatus).(enabled==true)-> send_reportBrakeStatus(newStatus).genericATP(enabled) 	<> logAction.genericATP(enabled))+
+		(sum newAcc:Bool.reportAcceleration(newAcc).(enabled==true)-> send_reportAcceleration(newAcc).genericATP(enabled) 			<> logAction.genericATP(enabled))+
+		(sum newSpeed:currentSpeed.reportSpeed(newSpeed).(enabled==true)-> send_reportSpeed(newSpeed).genericATP(enabled) 			<> logAction.genericATP(enabled));
+
+
+%---------------------------------------------------------------------------------------------------------------------------------------------------------------
+%End of 		G E N E R I C   A T P 
+%---------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+%---------------------------------------------------------------------------------------------------------------------------------------------------------------
+%Beginning of 	A T P ++
+%---------------------------------------------------------------------------------------------------------------------------------------------------------------
+	
+	ATPplusplus(enabled:Bool, sL:speedLimit, bS:brakeStatus, cA:Bool, rB:Bool, r3B:Bool, fT:Bool)
+	=
+		%-- REQUIREMENT 1 --%
+		(rcv_enableATPplusplus.enablingATPplusplus.ATPplusplus(true, sL_40, nonBraking, true, false, false, fT))+
+		(rcv_disableATPplusplus.disablingATPplusplus.ATPplusplus(false, sL_40, nonBraking, true, false, false, fT))+
+
+		%-- REQUIREMENT 5 --%
+		%-------------- Report Speed Limit --------------%
+		(sum newLimit:speedLimit.rcv_speedLimit(newLimit).(enabled==true)-> ATPplusplus(enabled,newLimit,bS,cA,rB,r3B,fT) 				<> logAction.ATPplusplus(enabled,sL,bS,cA,rB,r3B,fT))+
+
+		%-------------- Report Brake Status --------------%
+		(rcv_reportBrakeStatus(nonBraking).	(enabled==true)-> ATPplusplus(enabled,sL,nonBraking,cA,rB,r3B,fT) 				<> logAction.ATPplusplus(enabled,sL,bS,cA,rB,r3B,fT))+
+		(rcv_reportBrakeStatus(normalBraking).	(enabled==true)-> ATPplusplus(enabled,sL,normalBraking,cA,false,r3B,fT) 			<> logAction.ATPplusplus(enabled,sL,bS,cA,rB,r3B,fT))+
+		(rcv_reportBrakeStatus(emergencyBraking).	(enabled==true)-> ATPplusplus(enabled,sL,emergencyBraking,cA,false,r3B,fT) 			<> logAction.ATPplusplus(enabled,sL,bS,cA,rB,r3B,fT))+
+
+		%-------------- Report Acceleration --------------%
+		(rcv_reportAcceleration(true).	(enabled==true)-> ATPplusplus(enabled,sL,bS,true,rB,false,fT) 					<> logAction.ATPplusplus(enabled,sL,bS,cA,rB,r3B,fT))+
+		(rcv_reportAcceleration(false).	(enabled==true)-> ATPplusplus(enabled,sL,bS,false,rB,r3B,fT) 					<> logAction.ATPplusplus(enabled,sL,bS,cA,rB,r3B,fT))+
+
+		%-------------- Report Current Speed --------------%
+		(rcv_reportSpeed(s_0).		(enabled==true)-> releaseEmergencyBrakes.ATPplusplus(enabled,sL,nonBraking,cA,rB,false,fT) 		<> logAction.ATPplusplus(enabled,sL,bS,cA,rB,r3B,fT))+
+		(rcv_reportSpeed(s_1to40).	(enabled==true)-> ATPplusplus(enabled,sL,bS,cA,rB,false,fT) 					<> logAction.ATPplusplus(enabled,sL,bS,cA,rB,r3B,fT))+
+		(rcv_reportSpeed(s_41to50).	(enabled==true && bS==nonBraking && sL<sL_60)-> overSpeeding.ringBell.ATPplusplus(enabled,sL,bS,cA,true,r3B,fT) 	<> logAction.ATPplusplus(enabled,sL,bS,cA,rB,r3B,fT))+
+		(rcv_reportSpeed(s_51to60).	(enabled==true && bS==nonBraking && sL<sL_60)-> overSpeeding.ringBell.ATPplusplus(enabled,sL,bS,cA,true,r3B,fT) 	<> logAction.ATPplusplus(enabled,sL,bS,cA,rB,r3B,fT))+			
+		(rcv_reportSpeed(s_61to70).	(enabled==true && bS==nonBraking && sL<sL_80)-> overSpeeding.ringBell.ATPplusplus(enabled,sL,bS,cA,true,r3B,fT) 	<> logAction.ATPplusplus(enabled,sL,bS,cA,rB,r3B,fT))+
+		(rcv_reportSpeed(s_71to80).	(enabled==true && bS==nonBraking && sL<sL_80)-> overSpeeding.ringBell.ATPplusplus(enabled,sL,bS,cA,true,r3B,fT) 	<> logAction.ATPplusplus(enabled,sL,bS,cA,rB,r3B,fT))+
+		(rcv_reportSpeed(s_81to90).	(enabled==true && bS==nonBraking && sL<sL_130)-> overSpeeding.ringBell.ATPplusplus(enabled,sL,bS,cA,true,r3B,fT) 	<> logAction.ATPplusplus(enabled,sL,bS,cA,rB,r3B,fT))+		
+		(rcv_reportSpeed(s_91to130).	(enabled==true && bS==nonBraking && sL<sL_130)-> overSpeeding.ringBell.ATPplusplus(enabled,sL,bS,cA,true,r3B,fT) 	<> logAction.ATPplusplus(enabled,sL,bS,cA,rB,r3B,fT))+
+		(rcv_reportSpeed(s_131to140).	(enabled==true && bS==nonBraking)-> overSpeeding.ringBell.ATPplusplus(enabled,sL,bS,cA,true,r3B,fT) 		<> logAction.ATPplusplus(enabled,sL,bS,cA,rB,r3B,fT))+		
+		(rcv_reportSpeed(s_141toTopSpeed).	(enabled==true && bS== nonBraking)-> overSpeeding.ringBell.ATPplusplus(enabled,sL,bS,cA,true,r3B,fT) 		<> logAction.ATPplusplus(enabled,sL,bS,cA,rB,r3B,fT))+
+
+		%-------------- Freight Train --------------%
+%		(rcv_reportSpeed(s_41to50).(enabled==true && sL==sL_40 && bS==normalBraking && fT==true && r3B==false)-> ring3Bell.ATPplusplus(enabled,sL,bS,cA,false,true,fT) <> logAction.ATPplusplus(enabled,sL,bS,cA,rB,r3B,fT))+
+%		(rcv_reportSpeed(s_61to70).(enabled==true && sL==sL_60 && bS==normalBraking && fT==true && r3B==false)-> ring3Bell.ATPplusplus(enabled,sL,bS,cA,false,true,fT) <> logAction.ATPplusplus(enabled,sL,bS,cA,rB,r3B,fT))+
+%		(rcv_reportSpeed(s_81to90).(enabled==true && sL==sL_80 && bS==normalBraking && fT==true && r3B==false)-> ring3Bell.ATPplusplus(enabled,sL,bS,cA,false,true,fT) <> logAction.ATPplusplus(enabled,sL,bS,cA,rB,r3B,fT))+
+%		(rcv_reportSpeed(s_131to140).(enabled==true && sL==sL_130 && bS==normalBraking && fT==true && r3B==false)-> ring3Bell.ATPplusplus(enabled,sL,bS,cA,false,true,fT) <> logAction.ATPplusplus(enabled,sL,bS,cA,rB,r3B,fT))+
+
+		%-------------- Receive TimeOut --------------%
+		(timeOut.			(enabled==true && rB==true)-> emergencyBrakes.emergencyBraking.ATPplusplus(enabled,sL,emergencyBraking,cA,false,r3B,fT) 	<> logAction.ATPplusplus(enabled,sL,bS,cA,rB,r3B,fT))+
+		
+		%-- REQUIREMENT 11 --%
+		rcv_beaconStop.		(enabled==true) -> ATPplusplus(enabled,sL,emergencyBraking,cA,rB,r3B,fT) 				<> logAction.ATPplusplus(enabled,sL,bS,cA,rB,r3B,fT);
+		
+%---------------------------------------------------------------------------------------------------------------------------------------------------------------
+%End of 		A T P ++ 
+%---------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+%---------------------------------------------------------------------------------------------------------------------------------------------------------------
+%Beginning of 	A T P vv
+%---------------------------------------------------------------------------------------------------------------------------------------------------------------
+	
+	ATPvv(enabled:Bool)
+	=
+		%-- REQUIREMENT 1 --%
+		(rcv_enableATPvv.ATPvv(true).enablingATPvv)+
+		(rcv_disableATPvv.ATPvv(false).disablingATPvv)+
+
+		%-- REQUIREMENT 11 --%
+		(beaconStop.(enabled==true)-> send_beaconStop.emergencyBrakes.emergencyBraking.ATPvv(enabled) <> logAction.ATPvv(enabled)) ;
+
+%---------------------------------------------------------------------------------------------------------------------------------------------------------------
+%End of 		A T P vv 
+%---------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+%---------------------------------------------------------------------------------------------------------------------------------------------------------------
+init 
+%------------------------------------------------------------- I N I T I A L I Z A T I O N ---------------------------------------------------------------------
+
+%hide(
+%{
+%	logAction},
+
+	allow( 
+	{
+		enable,
+		msg_enableATPplusplus,
+		msg_enableATPvv,
+
+		disable,
+		msg_disableATPplusplus,
+		msg_disableATPvv,
+		
+		ringBell,
+		ring3Bell,
+
+		timeOut,
+
+		emergencyBrakes,
+		releaseEmergencyBrakes,
+
+		beaconStop,
+		msg_beaconStop,	
+
+		speedLimit,
+		msg_speedLimit,
+
+		reportSpeed,
+		msg_reportSpeed,
+
+		reportBrakeStatus,
+		msg_reportBrakeStatus,
+
+		reportAcceleration,
+		msg_reportAcceleration,
+
+		enablingATPplusplus,
+		disablingATPplusplus,
+		enablingATPvv,
+		disablingATPvv,
+		overSpeeding,
+		emergencyBraking,
+		logAction
+		},
+
+		comm( 
+		{
+			send_enableATPplusplus	| rcv_enableATPplusplus	-> msg_enableATPplusplus,
+			send_enableATPvv	| rcv_enableATPvv		-> msg_enableATPvv,
+
+			send_disableATPplusplus| rcv_disableATPplusplus	-> msg_disableATPplusplus,
+			send_disableATPvv	| rcv_disableATPvv 		-> msg_disableATPvv,
+
+			send_beaconStop	| rcv_beaconStop		-> msg_beaconStop,
+
+			send_speedLimit	| rcv_speedLimit		-> msg_speedLimit,
+			send_reportSpeed	| rcv_reportSpeed		-> msg_reportSpeed,
+			send_reportBrakeStatus	| rcv_reportBrakeStatus	-> msg_reportBrakeStatus,
+			send_reportAcceleration| rcv_reportAcceleration	-> msg_reportAcceleration
+		},
+
+		genericATP(true) || ATPvv(true) || ATPplusplus(true, sL_40, nonBraking, true, false, false, true)
+));
